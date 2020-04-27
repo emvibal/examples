@@ -30,7 +30,16 @@ parser.add_argument('--temperature', type=float, default=1.0,
                     help='temperature - higher will increase diversity')
 parser.add_argument('--log-interval', type=int, default=100,
                     help='reporting interval')
+parser.add_argument('--strategy', type=str, #default='sampling',
+                help = 'sampling or greedy')
+
 args = parser.parse_args()
+
+if args.strategy == 'greedy' or args.strategy == 'sampling':
+    strategy = args.strategy
+else:
+    parser.error('unknown strategy')
+
 
 # Set the random seed manually for reproducibility.
 torch.manual_seed(args.seed)
@@ -58,18 +67,30 @@ input = torch.randint(ntokens, (1, 1), dtype=torch.long).to(device)
 with open(args.outf, 'w') as outf:
     with torch.no_grad():  # no tracking history
         for i in range(args.words):
-            if is_transformer_model:
-                output = model(input, False)
-                word_weights = output[-1].squeeze().div(args.temperature).exp().cpu()
-                word_idx = torch.multinomial(word_weights, 1)[0]
-                word_tensor = torch.Tensor([[word_idx]]).long().to(device)
-                input = torch.cat([input, word_tensor], 0)
+            if strategy == 'sampling':
+                if is_transformer_model:
+                    output = model(input, False)
+                    word_weights = output[-1].squeeze().div(args.temperature).exp().cpu()
+                    word_idx = torch.multinomial(word_weights, 1)[0]
+                    word_tensor = torch.Tensor([[word_idx]]).long().to(device)
+                    input = torch.cat([input, word_tensor], 0)
+                else:
+                    output, hidden = model(input, hidden)
+                    word_weights = output.squeeze().div(args.temperature).exp().cpu()
+                    word_idx = torch.multinomial(word_weights, 1)[0]
+                    input.fill_(word_idx)
             else:
-                output, hidden = model(input, hidden)
+                output = model(input, False)
+                
                 word_weights = output.squeeze().div(args.temperature).exp().cpu()
-                word_idx = torch.multinomial(word_weights, 1)[0]
-                input.fill_(word_idx)
+                word_idx = torch.multinomial(word_weights, 1)
+                mynum ,word_idx2 = torch.max(word_idx,-1)
 
+                print('mynum {} word_idx {}'.format(mynum,word_idx2))
+                
+                input = torch.tensor([[word_idx2]])
+                input = input.long().to(device)
+            
             word = corpus.dictionary.idx2word[word_idx]
 
             outf.write(word + ('\n' if i % 20 == 19 else ' '))
